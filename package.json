@@ -1,0 +1,42 @@
+{
+  "name": "kegtrack-cl",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": "^22.13 || ^24.0"
+  },
+  "scripts": {
+    "build": "prisma generate && next build",
+    "dev": "next dev",
+    "start": "next start",
+    "typecheck": "prisma generate && tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "db:migrate": "prisma migrate deploy",
+    "db:bootstrap": "tsx prisma/bootstrap.ts",
+    "db:seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.3",
+    "html5-qrcode": "2.3.8",
+    "lucide-react": "^0.577.0",
+    "next": "16.4.6",
+    "qrcode": "1.5.4",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "prisma": "6.19.3",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.3"
+  },
+  "overrides": {
+    "@prisma/config": {
+      "deepmerge-ts": "8.0.2",
+      "effect": "3.22.5"
+    }
+  }
+}

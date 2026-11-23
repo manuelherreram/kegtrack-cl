@@ -1,0 +1,138 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  STAFF
+}
+
+enum KegStatus {
+  DIRTY
+  CLEAN
+  FULL
+  ON_TAP
+  AT_CLIENT
+  MAINTENANCE
+  RETIRED
+}
+
+enum CouplerType {
+  G
+  A
+  S
+  BALL_LOCK
+}
+
+model User {
+  id           String        @id @default(cuid())
+  name         String
+  email        String        @unique
+  passwordHash String
+  role         Role          @default(STAFF)
+  active       Boolean       @default(true)
+  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
+  sessions     Session[]
+  movements    KegMovement[]
+}
+
+model Session {
+  tokenHash String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime @db.Timestamptz(3)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model LoginAttempt {
+  email      String   @id
+  attempts   Int
+  since      DateTime @db.Timestamptz(3)
+
+  @@index([since])
+}
+
+model Batch {
+  id             String        @id @default(cuid())
+  batchCode      String        @unique
+  beerName       String
+  style          String
+  fillDate       DateTime      @db.Date
+  bestBeforeDate DateTime      @db.Date
+  createdAt      DateTime      @default(now()) @db.Timestamptz(3)
+  kegs           Keg[]
+  movements      KegMovement[]
+}
+
+model Client {
+  id           String        @id @default(cuid())
+  name         String
+  rut          String        @unique
+  contactName  String?
+  contactPhone String?
+  comuna       String
+  address      String
+  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
+  kegs         Keg[]
+  movements    KegMovement[]
+}
+
+model Keg {
+  id              String        @id @default(cuid())
+  kegCode         String        @unique
+  sizeLiters      Int
+  couplerType     CouplerType
+  status          KegStatus     @default(DIRTY)
+  version         Int           @default(0)
+  remainingLiters Float         @default(0)
+  tapLine         Int?          @unique
+  deliveredAt     DateTime?     @db.Timestamptz(3)
+  guiaDespacho    String?
+  depositClp      Int?
+  notes           String?
+  updatedAt       DateTime      @updatedAt @db.Timestamptz(3)
+  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
+  currentBatchId  String?
+  currentBatch    Batch?        @relation(fields: [currentBatchId], references: [id], onDelete: Restrict)
+  currentClientId String?
+  currentClient   Client?       @relation(fields: [currentClientId], references: [id], onDelete: Restrict)
+  movements       KegMovement[]
+
+  @@index([status, kegCode])
+  @@index([currentClientId])
+  @@index([currentBatchId])
+}
+
+model KegMovement {
+  id              String     @id @default(cuid())
+  kegId           String
+  keg             Keg        @relation(fields: [kegId], references: [id], onDelete: Restrict)
+  userId          String
+  user            User       @relation(fields: [userId], references: [id], onDelete: Restrict)
+  kegVersion      Int
+  fromStatus      KegStatus?
+  toStatus        KegStatus
+  batchId         String?
+  batch           Batch?     @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  clientId        String?
+  client          Client?    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  previousLiters  Float?
+  remainingLiters Float
+  tapLine         Int?
+  deliveredAt     DateTime?  @db.Timestamptz(3)
+  guiaDespacho    String?
+  depositClp      Int?
+  notes           String?
+  occurredAt      DateTime   @default(now()) @db.Timestamptz(3)
+
+  @@unique([kegId, kegVersion])
+  @@index([clientId, occurredAt])
+  @@map("keg_movements")
+}

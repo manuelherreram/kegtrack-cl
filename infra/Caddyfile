@@ -1,0 +1,13 @@
+{
+	skip_install_trust
+	auto_https disable_redirects
+	default_sni {$LAN_HOST}
+	servers {
+		protocols h1 h2
+	}
+}
+
+https://{$LAN_HOST}:8443 {
+	tls internal
+	reverse_proxy app:3000
+}

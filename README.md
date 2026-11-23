@@ -1,0 +1,91 @@
+# KegTrack CL
+
+Mobile-first keg inventory for a Chilean brewery with a taproom and B2B deliveries. The operator interface uses Chilean Spanish. This guide and the code comments describe the technical setup in English.
+
+## Start locally
+
+You need Docker with Compose v2. The first build downloads public images and npm dependencies. The running application uses your local PostgreSQL database and bundled assets, including its QR generator and scanner.
+
+1. Copy `.env.example` to `.env`. Run `openssl rand -hex 24` twice and set `DB_OWNER_PASSWORD` and `DB_APP_PASSWORD` to the two different outputs. Set `ADMIN_EMAIL`, `ADMIN_NAME` and a unique `ADMIN_PASSWORD` of at least 12 characters. Use hex for the database passwords so they can be included in a PostgreSQL URL.
+2. Start the database and app, and create the administrator.
+
+   ```sh
+   docker compose up --build -d --wait
+   docker compose run --no-deps --rm migrate npm run db:bootstrap
+   ```
+
+3. Open [http://localhost:3000](http://localhost:3000) and sign in. The app binds to the host loopback address by default. Clear `ADMIN_PASSWORD` from `.env` after the bootstrap. The account lives in PostgreSQL. In **Equipo**, create individual **Personal** accounts.
+
+To add sample beers, kegs and Chilean clients to a fresh demo database, run:
+
+```sh
+docker compose run --no-deps --rm migrate npm run db:seed
+```
+
+The demo includes `BRL-003` in the cold room, `BRL-005` and `BRL-006` ready for bulk filling, `BRL-007` to sanitize and `BRL-004` in an overdue comodato. Repeat seed runs preserve existing records with matching codes. Keep the demo database separate from live inventory.
+
+`docker compose down` stops the stack and preserves the database volume. Before upgrades, save an off-host backup and test restoring it. For example:
+
+```sh
+docker compose exec -T db pg_dump -U kegtrack_owner -Fc kegtrack > kegtrack.dump
+```
+
+## Phone camera on Wi-Fi
+
+1. Set `LAN_HOST` in `.env` to the Docker host's Wi-Fi IPv4 address. Keep the phone and host on the same trusted network.
+2. Start the optional Caddy HTTPS service and copy out its public root certificate:
+
+   ```sh
+   docker compose --profile lan up --build -d --wait
+   docker compose --profile lan cp caddy:/data/caddy/pki/authorities/local/root.crt ./kegtrack-local-root.crt
+   ```
+
+3. Transfer that root certificate to each authorized phone and trust it using the device's certificate settings. On iOS, install the profile and enable full trust in **Settings → General → About → Certificate Trust Settings**. On Android, the certificate installer is typically under **Security → Encryption & credentials → Install a certificate → CA certificate**. Menu names depend on the device. [Apple certificate trust instructions](https://support.apple.com/en-us/102390)
+4. Open `https://<LAN_HOST>:8443` on the phone, sign in, and tap **Escanear → Abrir cámara**. Grant camera permission. HTTP on the host's Wi-Fi IP does not provide a secure context for the phone's browser. Keep Caddy's private CA key inside the persistent `caddydata` volume and distribute only `root.crt`. [Caddy local TLS](https://caddyserver.com/docs/caddyfile/directives/tls) · [Browser camera requirements](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia)
+
+## Inventory workflow
+
+| Current state | Actions |
+| --- | --- |
+| Sucio / vacío | Sanitize, or send to maintenance as admin |
+| Limpio | Fill against a batch from **Escanear** or **Lotes**, or send to maintenance as admin |
+| Cámara de frío | Assign a tap line or record delivery to a client |
+| Pinchado en barra | Adjust estimated liters or record **Barril vacío** |
+| En cliente / Comodato | Record return to the brewery |
+| Mantención | Return to inventory as dirty or retire with a reason, both as admin |
+| Dado de baja | Terminal state. History remains accessible |
+
+- Administrators manage the registry, batches, clients, staff and maintenance. Staff can scan, fill kegs, record delivery and return, and operate taps.
+- In **Barriles**, filter by code, beer, client, status or connector. **Etiquetas de esta página** prints the current page of the filtered registry as an A4 grid. Each label contains the keg code, capacity and a QR encoding the code itself. Labels keep working if the app's address changes.
+- Client custody starts when staff record delivery. The 30-day alert uses calendar days in `America/Santiago`. Delivery guide references are entered manually and guarantees are stored as integer CLP.
+- Inventory volume is an estimate entered by staff. The app stores current assignments separately from the movement history, so marking a keg empty or recording a return clears its live assignments while retaining their details in history.
+
+## Project layout
+
+```text
+kegtrack-cl/
+├── docker-compose.yml         Database, migration job, web app and optional LAN TLS
+├── Dockerfile                 Node tools and runtime, Postgres init and Caddy
+├── .env.example               Local configuration template
+├── infra/                     Local PostgreSQL role bootstrap and Caddy config
+├── prisma/
+│   ├── schema.prisma          Domain, user accounts and sessions
+│   ├── migrations/            Committed PostgreSQL schema and guardrails
+│   ├── bootstrap.ts           One-time administrator creation
+│   └── seed.ts                Opt-in fictional inventory
+├── src/
+│   ├── app/                   Next.js pages, global CSS and health route
+│   ├── components/            Forms, mobile navigation, camera and QR printing
+│   └── lib/                   Authorization, validation and inventory transactions
+└── tests/                     Domain and PostgreSQL regression tests
+```
+
+## Data integrity and deployment
+
+Auth uses individual credentials and server-side PostgreSQL sessions. Each write checks the current account and records its user ID. The live keg row and the audit entry share a transaction. Mutating forms carry the keg version they displayed, so a duplicate submission or concurrent scan cannot overwrite newer state. Bulk filling commits as one transaction. PostgreSQL enforces a unique occupied tap line, capacity and custody constraints, and an append-only `keg_movements` table. The runtime database role can read and append history, and the database rejects updates, deletes and truncation of that table.
+
+The app image is stateless. For AWS, build the `app` and `tools` targets and push them to ECR. On a private RDS PostgreSQL database, create a migration owner and a separate login role named `kegtrack_app` before applying the first migration. Pass the owner connection URL to a one-off `tools` task and the runtime role URL to the web service. Use Secrets Manager and certificate-verified PostgreSQL TLS. Run the migration task before rolling out the new application image. Deploy the app behind an HTTPS ALB with an ACM certificate and use `/api/health` for health checks. Keep the app and database behind private security groups, configure backups, and deploy replicas from the same image so they share the Server Actions build key. [Prisma deployment migrations](https://www.prisma.io/docs/orm/v6/prisma-migrate/workflows/development-and-production)
+
+## Checks
+
+With Node 22 and npm installed, run `npm ci`, `npm run typecheck`, `npm test` and `npm run build`. For the PostgreSQL regression test, point `DATABASE_URL` at a disposable migrated database and run `KEGTRACK_TEST_DB=1 npx tsx --test tests/inventory.integration.ts`. It creates its own test fixtures.

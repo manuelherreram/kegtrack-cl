@@ -48,18 +48,26 @@ docker compose exec -T db pg_dump -U kegtrack_owner -Fc kegtrack > kegtrack.dump
 | Current state | Actions |
 | --- | --- |
 | Sucio / vacío | Sanitize. Admins can send it to maintenance or retire it with a reason |
-| Limpio | Fill against a batch from **Escanear** or **Lotes**. Admins can send it to maintenance or retire it with a reason |
-| Cámara de frío | Assign a tap line or record delivery to a client |
-| Pinchado en barra | Adjust estimated liters or record **Barril vacío** |
-| En cliente / Comodato | Record return to the brewery |
+| Limpio | Fill with measured liters from a released lot in **Escanear** or **Lotes**. Admins can send it to maintenance or retire it with a reason |
+| Cámara de frío | Assign a tap line, deliver to a client, or record beer discarded with a reason |
+| Pinchado en barra | Adjust estimated liters, mark empty, return to cold storage with beer, or record a discard |
+| En cliente / Comodato | Record an empty return or return to cold storage with the measured remaining volume |
 | Mantención | Return to inventory as dirty or retire with a reason, both as admin |
-| Dado de baja | Terminal state. History remains accessible |
+| Dado de baja | Archived from the active registry. History remains accessible |
 
 - Administrators manage the registry, batches, clients, staff and maintenance. Staff can scan, fill kegs, record delivery and return, and operate taps.
 - To retire an eligible keg, an administrator opens its record in **Barriles**, selects **Dar de baja**, and confirms with a reason. The registry defaults to active kegs. Select **Dado de baja** in the **Estado** filter to find retired records and their movement history.
+- On a keg's record, **Editar ficha** lets an administrator correct the connector, notes, and capacity when empty. **Deshacer último movimiento** restores the state before the latest reversible action and records who corrected it and why. Undoing a fill restores its recorded liters to the lot's available balance. The original event remains in the report and is marked corrected. Moves created before this upgrade remain visible and lack the snapshots needed for undo.
 - In **Barriles**, filter by code, beer, client, status or connector. **Etiquetas de esta página** prints the current page of the filtered registry as an A4 grid. Each label contains the keg code, capacity and a QR encoding the code itself. Labels keep working if the app's address changes.
+- In **Lotes**, add a beer to **Catálogo de cervezas** and reuse it for each new lot. Enter the total liters available for packaging, including any already recorded in kegs. New lots start **En retención**. Open the lot to release it or change its volume with a reason. Release permits fills, taps and deliveries from the fill date through the best-before date, inclusive, in Chilean local time. Use the hold state to suspend those operations. Staff can still return or drain a held keg.
+- **Saldo para llenar** is the lot's unallocated beer. A partial return or discard changes the keg's remaining volume. Its original fill stays in the lot's allocated volume.
+- Open a lot to see its current kegs and all recorded moves, including earlier deliveries, returns, discards and corrections. **Descargar CSV** exports that timeline in UTF-8 with semicolon delimiters and UTC timestamps.
 - Client custody starts when staff record delivery. The 30-day alert uses calendar days in `America/Santiago`. Delivery guide references are entered manually and guarantees are stored as integer CLP.
 - Inventory volume is an estimate entered by staff. The app stores current assignments separately from the movement history, so marking a keg empty or recording a return clears its live assignments while retaining their details in history.
+
+### Upgrade an existing local database
+
+Use the regular Compose build and startup command to run the new migration. It derives catalog entries from existing names and styles, preserves lot and keg history, and estimates previously allocated liters from recorded fills and nominal capacity for seeded opening inventory. Migrated lots start **En retención** with their total volume unconfirmed. Confirm each lot's total before releasing it. Existing deliveries and tap assignments remain visible and can be returned or drained during the review.
 
 ## Project layout
 

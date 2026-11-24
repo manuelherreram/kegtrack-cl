@@ -29,16 +29,37 @@ enum CouplerType {
   BALL_LOCK
 }
 
+enum BatchStatus {
+  HOLD
+  RELEASED
+}
+
+enum MovementKind {
+  LEGACY
+  REGISTER
+  STATUS
+  FILL
+  TAP
+  DELIVER
+  RETURN_EMPTY
+  RETURN_COLD
+  DISCARD
+  VOLUME
+  EDIT
+  CORRECTION
+}
+
 model User {
-  id           String        @id @default(cuid())
-  name         String
-  email        String        @unique
-  passwordHash String
-  role         Role          @default(STAFF)
-  active       Boolean       @default(true)
-  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
-  sessions     Session[]
-  movements    KegMovement[]
+  id            String         @id @default(cuid())
+  name          String
+  email         String         @unique
+  passwordHash  String
+  role          Role           @default(STAFF)
+  active        Boolean        @default(true)
+  createdAt     DateTime       @default(now()) @db.Timestamptz(3)
+  sessions      Session[]
+  movements     KegMovement[]
+  batchControls BatchControl[]
 }
 
 model Session {
@@ -52,23 +73,55 @@ model Session {
 }
 
 model LoginAttempt {
-  email      String   @id
-  attempts   Int
-  since      DateTime @db.Timestamptz(3)
+  email    String   @id
+  attempts Int
+  since    DateTime @db.Timestamptz(3)
 
   @@index([since])
 }
 
+model Beer {
+  id      String  @id @default(cuid())
+  name    String
+  style   String
+  key     String  @unique
+  batches Batch[]
+}
+
 model Batch {
-  id             String        @id @default(cuid())
-  batchCode      String        @unique
-  beerName       String
-  style          String
-  fillDate       DateTime      @db.Date
-  bestBeforeDate DateTime      @db.Date
-  createdAt      DateTime      @default(now()) @db.Timestamptz(3)
-  kegs           Keg[]
-  movements      KegMovement[]
+  id                  String         @id @default(cuid())
+  batchCode           String         @unique
+  beerId              String
+  beer                Beer           @relation(fields: [beerId], references: [id], onDelete: Restrict)
+  // Preserve the product description used when the lot was registered.
+  beerName            String
+  style               String
+  fillDate            DateTime       @db.Date
+  bestBeforeDate      DateTime       @db.Date
+  status              BatchStatus    @default(HOLD)
+  packagedDeciliters  Int?
+  allocatedDeciliters Int            @default(0)
+  controlVersion      Int            @default(0)
+  createdAt           DateTime       @default(now()) @db.Timestamptz(3)
+  kegs                Keg[]
+  movements           KegMovement[]
+  controls            BatchControl[]
+
+  @@index([beerId])
+}
+
+model BatchControl {
+  id                 String      @id @default(cuid())
+  batchId            String
+  batch              Batch       @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  userId             String
+  user               User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  status             BatchStatus
+  packagedDeciliters Int?
+  notes              String
+  occurredAt         DateTime    @default(now()) @db.Timestamptz(3)
+
+  @@index([batchId, occurredAt])
 }
 
 model Client {
@@ -111,28 +164,35 @@ model Keg {
 }
 
 model KegMovement {
-  id              String     @id @default(cuid())
+  id              String       @id @default(cuid())
   kegId           String
-  keg             Keg        @relation(fields: [kegId], references: [id], onDelete: Restrict)
+  keg             Keg          @relation(fields: [kegId], references: [id], onDelete: Restrict)
   userId          String
-  user            User       @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user            User         @relation(fields: [userId], references: [id], onDelete: Restrict)
   kegVersion      Int
+  kind            MovementKind @default(LEGACY)
+  previousState   Json?
+  discardedLiters Float?
+  correctsId      String?      @unique
+  corrects        KegMovement? @relation("MovementCorrection", fields: [correctsId], references: [id], onDelete: Restrict)
+  correctedBy     KegMovement? @relation("MovementCorrection")
   fromStatus      KegStatus?
   toStatus        KegStatus
   batchId         String?
-  batch           Batch?     @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  batch           Batch?       @relation(fields: [batchId], references: [id], onDelete: Restrict)
   clientId        String?
-  client          Client?    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  client          Client?      @relation(fields: [clientId], references: [id], onDelete: Restrict)
   previousLiters  Float?
   remainingLiters Float
   tapLine         Int?
-  deliveredAt     DateTime?  @db.Timestamptz(3)
+  deliveredAt     DateTime?    @db.Timestamptz(3)
   guiaDespacho    String?
   depositClp      Int?
   notes           String?
-  occurredAt      DateTime   @default(now()) @db.Timestamptz(3)
+  occurredAt      DateTime     @default(now()) @db.Timestamptz(3)
 
   @@unique([kegId, kegVersion])
   @@index([clientId, occurredAt])
+  @@index([batchId, occurredAt])
   @@map("keg_movements")
 }

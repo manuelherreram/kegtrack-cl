@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client'
+import { allocateBatch, beerKey } from '../src/lib/batches'
 import { calendarDate, formatRut } from '../src/lib/domain'
 import { registerKeg } from '../src/lib/inventory'
 import { prisma } from '../src/lib/prisma'
@@ -16,6 +17,7 @@ async function main() {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(273504481)`
     const actor = await tx.user.findUnique({ where: { email } })
     if (!actor?.active || actor.role !== 'ADMIN') throw new Error('Bootstrap the administrator before loading demo data.')
+    const actorId = actor.id
 
     const client = await tx.client.upsert({
       where: { rut: formatRut('76000000-0')! }, update: {},
@@ -26,14 +28,19 @@ async function main() {
       where: { rut: secondRut }, update: {},
       create: { name: 'Taproom Bosque (demo)', rut: secondRut, comuna: 'Ñuñoa', address: 'Dirección de ejemplo' },
     })
-    const ipa = await tx.batch.upsert({
-      where: { batchCode: 'DEMO-IPA' }, update: {},
-      create: { batchCode: 'DEMO-IPA', beerName: 'Cordillera Hazy IPA', style: 'Hazy IPA', fillDate: dayOffset(-50), bestBeforeDate: dayOffset(80) },
-    })
-    const stout = await tx.batch.upsert({
-      where: { batchCode: 'DEMO-STOUT' }, update: {},
-      create: { batchCode: 'DEMO-STOUT', beerName: 'Patagonia Oatmeal Stout', style: 'Oatmeal Stout', fillDate: dayOffset(-7), bestBeforeDate: dayOffset(120) },
-    })
+    async function demoBatch(batchCode: string, beerName: string, style: string, fillOffset: number, bestBeforeOffset: number) {
+      const existing = await tx.batch.findUnique({ where: { batchCode } })
+      if (existing) return existing
+      const key = await beerKey(tx, beerName, style)
+      const beer = await tx.beer.upsert({ where: { key }, update: {}, create: { key, name: beerName, style } })
+      return tx.batch.create({ data: {
+        batchCode, beerId: beer.id, beerName: beer.name, style: beer.style,
+        status: 'RELEASED', packagedDeciliters: 2_000, fillDate: dayOffset(fillOffset), bestBeforeDate: dayOffset(bestBeforeOffset),
+        controls: { create: { userId: actorId, status: 'RELEASED', packagedDeciliters: 2_000, notes: 'Lote de demostración' } },
+      } })
+    }
+    const ipa = await demoBatch('DEMO-IPA', 'Cordillera Hazy IPA', 'Hazy IPA', -50, 80)
+    const stout = await demoBatch('DEMO-STOUT', 'Patagonia Oatmeal Stout', 'Oatmeal Stout', -7, 120)
     const kegs: Prisma.KegUncheckedCreateInput[] = [
       { kegCode: 'BRL-001', sizeLiters: 30, couplerType: 'G', status: 'ON_TAP', tapLine: 1, currentBatchId: ipa.id, remainingLiters: 18.5 },
       { kegCode: 'BRL-002', sizeLiters: 30, couplerType: 'G', status: 'ON_TAP', tapLine: 2, currentBatchId: stout.id, remainingLiters: 27 },
@@ -46,6 +53,7 @@ async function main() {
     ]
     for (const keg of kegs) {
       if (!await tx.keg.findUnique({ where: { kegCode: keg.kegCode }, select: { id: true } })) {
+        if (keg.currentBatchId) await allocateBatch(tx, keg.currentBatchId, keg.sizeLiters * 10)
         await registerKeg(tx, actor.id, { ...keg, notes: 'Inventario de demostración' })
       }
     }

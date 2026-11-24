@@ -16,16 +16,30 @@ export const sizes = [19, 20, 30, 50] as const
 export const kegCodePattern = /^[A-Z0-9][A-Z0-9-]{1,31}$/
 export const santiago = 'America/Santiago'
 
-type Option = { to: Status; label: string; admin?: boolean }
+export class InputError extends Error {}
+
+export const batchStatuses = { HOLD: 'En retención', RELEASED: 'Liberado' } as const
+
+export const movementLabels = {
+  LEGACY: 'Movimiento anterior', REGISTER: 'Alta de inventario', STATUS: 'Cambio de estado',
+  FILL: 'Llenado', TAP: 'Pinchado en barra', DELIVER: 'Entrega a cliente', RETURN_EMPTY: 'Devolución vacía',
+  RETURN_COLD: 'Regreso a cámara', DISCARD: 'Descarte', VOLUME: 'Ajuste de volumen',
+  EDIT: 'Edición de ficha', CORRECTION: 'Corrección',
+} as const
+
+export type KegAction = 'DISCARD' | 'RETURN_COLD'
+type Option = { to: Status; label: string; admin?: boolean; action?: KegAction }
 
 const maintenance: Option = { to: 'MAINTENANCE', label: 'Enviar a mantención', admin: true }
 const retirement: Option = { to: 'RETIRED', label: 'Dar de baja', admin: true }
+const discard: Option = { to: 'DIRTY', label: 'Descartar cerveza', action: 'DISCARD' }
+const returnCold: Option = { to: 'FULL', label: 'Regresar a cámara con cerveza', action: 'RETURN_COLD' }
 const transitions: Record<Status, readonly Option[]> = {
   DIRTY: [{ to: 'CLEAN', label: 'Registrar sanitización' }, maintenance, retirement],
   CLEAN: [{ to: 'FULL', label: 'Llenar desde un lote' }, maintenance, retirement],
-  FULL: [{ to: 'ON_TAP', label: 'Pinchar en barra' }, { to: 'AT_CLIENT', label: 'Registrar entrega' }],
-  ON_TAP: [{ to: 'DIRTY', label: 'Barril vacío' }],
-  AT_CLIENT: [{ to: 'DIRTY', label: 'Registrar devolución' }],
+  FULL: [{ to: 'ON_TAP', label: 'Pinchar en barra' }, { to: 'AT_CLIENT', label: 'Registrar entrega' }, discard],
+  ON_TAP: [{ to: 'DIRTY', label: 'Barril vacío' }, returnCold, discard],
+  AT_CLIENT: [{ to: 'DIRTY', label: 'Registrar devolución vacía' }, returnCold],
   MAINTENANCE: [
     { to: 'DIRTY', label: 'Reintegrar como sucio', admin: true },
     retirement,

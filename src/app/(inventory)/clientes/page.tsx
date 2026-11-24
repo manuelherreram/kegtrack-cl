@@ -3,7 +3,8 @@ import { ActionForm } from '@/components/form'
 import { Empty, Expand, Field, PageTitle } from '@/components/ui'
 import { createClient } from '@/lib/actions'
 import { requireUser } from '@/lib/auth'
-import { clp, daysInCustody, timeLabel } from '@/lib/domain'
+import { batchBlock } from '@/lib/batches'
+import { clp, daysInCustody, liters, timeLabel } from '@/lib/domain'
 import { prisma } from '@/lib/prisma'
 
 export const metadata = { title: 'Clientes' }
@@ -37,12 +38,16 @@ export default async function ClientsPage() {
         {(client.contactName || client.contactPhone) && <p className="muted">{[client.contactName, client.contactPhone].filter(Boolean).join(' · ')}</p>}
         {client.kegs.length > 0 && <ul className="rows custody">{client.kegs.map((keg) => {
           const days = keg.deliveredAt ? daysInCustody(keg.deliveredAt) : 0
+          const blocked = keg.currentBatch ? batchBlock(keg.currentBatch) : null
           return <li key={keg.id}><div>
             <Link href={`/barriles/${keg.kegCode}`} className="record-code">{keg.kegCode}</Link>
-            <small>{keg.currentBatch?.beerName} · {keg.sizeLiters} L</small>
+            <small>{keg.currentBatch?.beerName} · {liters(keg.remainingLiters)} al entregar</small>
+            {keg.currentBatch && <small><Link href={`/lotes/${keg.currentBatch.id}`}>{keg.currentBatch.batchCode}</Link></small>}
+            {blocked && <small>{blocked}</small>}
             {keg.deliveredAt && <small>Entrega {timeLabel(keg.deliveredAt)}</small>}
             {keg.guiaDespacho && <small>Guía {keg.guiaDespacho}</small>}
             {keg.depositClp !== null && <small>Garantía {clp(keg.depositClp)}</small>}
+            <small><Link href={`/scan?code=${keg.kegCode}`}>Registrar devolución</Link></small>
           </div><span className={`row-end ${days > 30 ? 'overdue' : 'muted'}`}>{days} {days === 1 ? 'día' : 'días'}</span></li>
         })}</ul>}
       </section>)}</div>}

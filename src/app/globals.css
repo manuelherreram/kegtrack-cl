@@ -203,3 +203,10 @@ progress { width: 100%; height: 10px; accent-color: #976432; }
   .qr-label img { width: 31mm; height: 31mm; }
   .qr-label strong { font-size: 14pt; }
 }
+
+.fill-row { display: grid; grid-template-columns: minmax(0, 1fr) 7rem; align-items: end; gap: 10px; border-bottom: 1px solid var(--border); padding: 6px 4px; }
+.fill-row > label { border: 0; margin: 0; padding: 0; }
+.fill-row > label span { margin-left: 0; }
+.fill-row small { display: block; font-size: .75rem; }
+.fill-row .field label { padding: 0; min-height: 0; border: 0; }
+.fill-row .field input { width: 100%; }

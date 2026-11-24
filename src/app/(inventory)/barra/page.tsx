@@ -3,6 +3,7 @@ import { ActionForm } from '@/components/form'
 import { Empty, Expand, Field, PageTitle } from '@/components/ui'
 import { applyTransition, saveVolume } from '@/lib/actions'
 import { requireUser } from '@/lib/auth'
+import { batchBlock } from '@/lib/batches'
 import { liters } from '@/lib/domain'
 import { prisma } from '@/lib/prisma'
 
@@ -22,6 +23,7 @@ export default async function Taproom() {
           </header>
           <p className="tap-volume"><strong>{liters(keg.remainingLiters)}</strong> de {keg.sizeLiters} L</p>
           <progress aria-label="Volumen estimado" max={keg.sizeLiters} value={keg.remainingLiters} />
+          {keg.currentBatch && batchBlock(keg.currentBatch) && <p className="feedback error">{batchBlock(keg.currentBatch)} Revisa el barril antes de servir.</p>}
           <Expand label="Ajustar litros estimados">
             <ActionForm action={saveVolume.bind(null, keg.kegCode)} label="Guardar volumen" variant="secondary">
               <input type="hidden" name="version" value={keg.version} />
@@ -31,6 +33,7 @@ export default async function Taproom() {
           <ActionForm action={applyTransition.bind(null, keg.kegCode)} label="Barril vacío" variant="danger">
             <input type="hidden" name="version" value={keg.version} /><input type="hidden" name="to" value="DIRTY" />
           </ActionForm>
+          <Link className="text-link" href={`/scan?code=${keg.kegCode}`}>Regresar a cámara o descartar</Link>
         </section>)}
       </div>}
   </>

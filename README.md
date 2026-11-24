@@ -47,8 +47,8 @@ docker compose exec -T db pg_dump -U kegtrack_owner -Fc kegtrack > kegtrack.dump
 
 | Current state | Actions |
 | --- | --- |
-| Sucio / vacío | Sanitize, or send to maintenance as admin |
-| Limpio | Fill against a batch from **Escanear** or **Lotes**, or send to maintenance as admin |
+| Sucio / vacío | Sanitize. Admins can send it to maintenance or retire it with a reason |
+| Limpio | Fill against a batch from **Escanear** or **Lotes**. Admins can send it to maintenance or retire it with a reason |
 | Cámara de frío | Assign a tap line or record delivery to a client |
 | Pinchado en barra | Adjust estimated liters or record **Barril vacío** |
 | En cliente / Comodato | Record return to the brewery |
@@ -56,6 +56,7 @@ docker compose exec -T db pg_dump -U kegtrack_owner -Fc kegtrack > kegtrack.dump
 | Dado de baja | Terminal state. History remains accessible |
 
 - Administrators manage the registry, batches, clients, staff and maintenance. Staff can scan, fill kegs, record delivery and return, and operate taps.
+- To retire an eligible keg, an administrator opens its record in **Barriles**, selects **Dar de baja**, and confirms with a reason. The registry defaults to active kegs. Select **Dado de baja** in the **Estado** filter to find retired records and their movement history.
 - In **Barriles**, filter by code, beer, client, status or connector. **Etiquetas de esta página** prints the current page of the filtered registry as an A4 grid. Each label contains the keg code, capacity and a QR encoding the code itself. Labels keep working if the app's address changes.
 - Client custody starts when staff record delivery. The 30-day alert uses calendar days in `America/Santiago`. Delivery guide references are entered manually and guarantees are stored as integer CLP.
 - Inventory volume is an estimate entered by staff. The app stores current assignments separately from the movement history, so marking a keg empty or recording a return clears its live assignments while retaining their details in history.

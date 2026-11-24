@@ -37,7 +37,11 @@ export default async function Registry({ searchParams }: { searchParams: Promise
     <section className="panel registry">
       <form className="filters" action="/barriles">
         <Field label="Buscar"><input name="q" defaultValue={filters.text} maxLength={80} placeholder="Código, cerveza o cliente" /></Field>
-        <Field label="Estado"><select name="estado" defaultValue={filters.status}><option value="">Todos los estados</option>{Object.entries(statuses).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+        <Field label="Estado"><select name="estado" defaultValue={filters.status}>
+          <option value="">Activos</option>
+          <option value="ALL">Todos los estados</option>
+          {Object.entries(statuses).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select></Field>
         <Field label="Conector"><select name="conector" defaultValue={filters.coupler}><option value="">Todos los conectores</option>{Object.entries(couplers).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
         <button className="button secondary"><Search size={17} aria-hidden="true" />Filtrar</button>
       </form>

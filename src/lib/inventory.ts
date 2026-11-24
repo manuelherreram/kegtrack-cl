@@ -99,7 +99,7 @@ async function saveChange(tx: Tx, actor: Actor, keg: Keg, change: Change) {
       })
       break
     case 'RETIRED':
-      if (!change.notes) throw new InputError('Indica el motivo de la baja.')
+      if (!change.notes?.trim()) throw new InputError('Indica el motivo de la baja.')
       break
   }
 

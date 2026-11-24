@@ -6,11 +6,14 @@ export type SearchParams = Record<string, string | string[] | undefined>
 
 export function readRegistry(params: SearchParams) {
   const text = typeof params.q === 'string' ? params.q.trim().slice(0, 80) : ''
-  const status = typeof params.estado === 'string' && Object.hasOwn(statuses, params.estado) ? params.estado as Status : ''
+  const state = params.estado
+  const status = typeof state === 'string' && (state === 'ALL' || Object.hasOwn(statuses, state))
+    ? state as Status | 'ALL'
+    : ''
   const coupler = typeof params.conector === 'string' && Object.hasOwn(couplers, params.conector) ? params.conector as keyof typeof couplers : ''
   const page = typeof params.p === 'string' && /^[1-9]\d{0,5}$/.test(params.p) ? Number(params.p) : 1
   const where: Prisma.KegWhereInput = {
-    ...(status && { status }),
+    ...(status !== 'ALL' && { status: status || { not: 'RETIRED' } }),
     ...(coupler && { couplerType: coupler }),
     ...(text && { OR: [
       { kegCode: { contains: text, mode: 'insensitive' } },

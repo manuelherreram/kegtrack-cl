@@ -11,6 +11,7 @@ after(() => prisma.$disconnect())
 test('guards concurrent movement, atomic bulk fill, tap uniqueness and append-only history', async () => {
   const scope = `QA-${randomBytes(5).toString('hex').toUpperCase()}`
   const actor = await prisma.user.create({ data: { email: `${scope.toLowerCase()}@example.test`, name: 'Integration test', passwordHash: 'test-only', role: 'STAFF' } })
+  const admin = await prisma.user.create({ data: { email: `${scope.toLowerCase()}-admin@example.test`, name: 'Integration admin', passwordHash: 'test-only', role: 'ADMIN' } })
   const batch = await prisma.batch.create({
     data: { batchCode: scope, beerName: 'Integration IPA', style: 'IPA', fillDate: new Date('2026-01-01'), bestBeforeDate: new Date('2027-01-01') },
   })
@@ -47,6 +48,8 @@ test('guards concurrent movement, atomic bulk fill, tap uniqueness and append-on
   ])
   assert.equal(tapRace.filter((item) => item.status === 'fulfilled').length, 1)
   const [tapped, full] = tapRace[0].status === 'fulfilled' ? [a, b] : [b, a]
+  await assert.rejects(transitionKeg(admin, tapped.kegCode, { to: 'RETIRED', version: 3, notes: 'Retiro' }), /perfil/)
+  await assert.rejects(transitionKeg(admin, full.kegCode, { to: 'RETIRED', version: 2, notes: 'Retiro' }), /perfil/)
   await updateVolume(actor, tapped.kegCode, 3, 14.5)
   await transitionKeg(actor, tapped.kegCode, { to: 'DIRTY', version: 4 })
   const kicked = await prisma.kegMovement.findUniqueOrThrow({ where: { kegId_kegVersion: { kegId: tapped.id, kegVersion: 5 } } })
@@ -60,5 +63,14 @@ test('guards concurrent movement, atomic bulk fill, tap uniqueness and append-on
   const empty = await prisma.keg.findUniqueOrThrow({ where: { id: full.id } })
   assert.deepEqual([empty.currentBatchId, empty.currentClientId, empty.guiaDespacho, empty.depositClp, empty.deliveredAt], [null, null, null, null, null])
   await assert.rejects(transitionKeg(actor, c.kegCode, { to: 'MAINTENANCE', version: 0 }), /perfil/)
+  await assert.rejects(transitionKeg(actor, full.kegCode, { to: 'RETIRED', version: 4, notes: 'Retiro' }), /perfil/)
+  await assert.rejects(transitionKeg(admin, full.kegCode, { to: 'RETIRED', version: 4, notes: '   ' }), /motivo/)
+  await transitionKeg(admin, full.kegCode, { to: 'RETIRED', version: 4, notes: 'Daño estructural' })
+  const retired = await prisma.keg.findUniqueOrThrow({ where: { id: full.id } })
+  assert.equal(retired.status, 'RETIRED')
+  assert.equal(await prisma.kegMovement.count({ where: { kegId: full.id } }), 6)
+  const retirement = await prisma.kegMovement.findUniqueOrThrow({ where: { kegId_kegVersion: { kegId: full.id, kegVersion: 5 } } })
+  assert.deepEqual([retirement.userId, retirement.fromStatus, retirement.toStatus, retirement.notes], [admin.id, 'DIRTY', 'RETIRED', 'Daño estructural'])
+  await assert.rejects(transitionKeg(admin, full.kegCode, { to: 'CLEAN', version: 5 }), /perfil/)
   await assert.rejects(prisma.kegMovement.update({ where: { id: returned.id }, data: { notes: 'edit' } }), /append-only|permission denied/)
 })

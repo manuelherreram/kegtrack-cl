@@ -2,16 +2,17 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ScanLine } from 'lucide-react'
 import { KegCard } from '@/components/keg-card'
+import { RetireKeg } from '@/components/retire-keg'
 import { PageTitle } from '@/components/ui'
 import { requireUser } from '@/lib/auth'
-import { clp, liters, statuses, timeLabel } from '@/lib/domain'
+import { clp, liters, statuses, timeLabel, validActions } from '@/lib/domain'
 import { kegDetails } from '@/lib/inventory'
 import { prisma } from '@/lib/prisma'
 
 export const metadata = { title: 'Historial del barril' }
 
 export default async function KegHistory({ params }: { params: Promise<{ code: string }> }) {
-  await requireUser()
+  const user = await requireUser()
   const { code } = await params
   const keg = await prisma.keg.findUnique({
     where: { kegCode: code.toUpperCase() },
@@ -21,10 +22,14 @@ export default async function KegHistory({ params }: { params: Promise<{ code: s
     },
   })
   if (!keg) notFound()
+  const canRetire = validActions(keg.status, user.role).some(({ to }) => to === 'RETIRED')
   return <>
     <Link href="/barriles" className="back-link">← Barriles</Link>
-    <PageTitle title="Ficha del barril" action={<Link className="button" href={`/scan?code=${keg.kegCode}`}><ScanLine size={18} aria-hidden="true" />Operar barril</Link>} />
+    <PageTitle title="Ficha del barril" action={keg.status !== 'RETIRED' && <Link className="button" href={`/scan?code=${keg.kegCode}`}><ScanLine size={18} aria-hidden="true" />Operar barril</Link>} />
     <KegCard keg={keg} />
+    {canRetire && <RetireKeg kegCode={keg.kegCode} version={keg.version} />}
+    {user.role === 'ADMIN' && !canRetire && keg.status !== 'RETIRED' &&
+      <p className="muted">La baja está disponible para barriles vacíos o en mantención.</p>}
     <section className="panel history">
       <header className="panel-heading"><h2>Historial de movimientos</h2></header>
       <ol className="rows">

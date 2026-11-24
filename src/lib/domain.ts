@@ -19,15 +19,16 @@ export const santiago = 'America/Santiago'
 type Option = { to: Status; label: string; admin?: boolean }
 
 const maintenance: Option = { to: 'MAINTENANCE', label: 'Enviar a mantención', admin: true }
+const retirement: Option = { to: 'RETIRED', label: 'Dar de baja', admin: true }
 const transitions: Record<Status, readonly Option[]> = {
-  DIRTY: [{ to: 'CLEAN', label: 'Registrar sanitización' }, maintenance],
-  CLEAN: [{ to: 'FULL', label: 'Llenar desde un lote' }, maintenance],
+  DIRTY: [{ to: 'CLEAN', label: 'Registrar sanitización' }, maintenance, retirement],
+  CLEAN: [{ to: 'FULL', label: 'Llenar desde un lote' }, maintenance, retirement],
   FULL: [{ to: 'ON_TAP', label: 'Pinchar en barra' }, { to: 'AT_CLIENT', label: 'Registrar entrega' }],
   ON_TAP: [{ to: 'DIRTY', label: 'Barril vacío' }],
   AT_CLIENT: [{ to: 'DIRTY', label: 'Registrar devolución' }],
   MAINTENANCE: [
     { to: 'DIRTY', label: 'Reintegrar como sucio', admin: true },
-    { to: 'RETIRED', label: 'Dar de baja', admin: true },
+    retirement,
   ],
   RETIRED: [],
 }

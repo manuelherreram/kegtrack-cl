@@ -1,5 +1,6 @@
 import { ActionForm } from '@/components/form'
 import { KegCard } from '@/components/keg-card'
+import { RetireKeg } from '@/components/retire-keg'
 import { Scanner } from '@/components/scanner'
 import { Expand, Field, PageTitle } from '@/components/ui'
 import { applyTransition } from '@/lib/actions'
@@ -38,10 +39,10 @@ export default async function ScanPage({ searchParams }: { searchParams: Promise
           <section className="action-list" key={keg.id}>
             <h2>Acciones disponibles</h2>
             {!options.length && <p className="empty">No hay movimientos disponibles para este estado y perfil.</p>}
-            {options.map(({ to, label }) => <Expand key={to} label={label}>
+            {options.map(({ to, label }) => to === 'RETIRED' ? <RetireKeg key={to} kegCode={keg.kegCode} version={keg.version} /> : <Expand key={to} label={label}>
               {to === 'FULL' && !batches.length ? <p>Crea un lote antes de llenar el barril.</p> :
               to === 'AT_CLIENT' && !clients.length ? <p>Registra un cliente antes de asignar un comodato.</p> :
-              <ActionForm action={applyTransition.bind(null, keg.kegCode)} label={label} variant={to === 'RETIRED' ? 'danger' : ''}>
+              <ActionForm action={applyTransition.bind(null, keg.kegCode)} label={label}>
                 <input type="hidden" name="to" value={to} />
                 <input type="hidden" name="version" value={keg.version} />
                 <div className="form-grid">
@@ -59,7 +60,7 @@ export default async function ScanPage({ searchParams }: { searchParams: Promise
                     <Field label="Guía de despacho (opcional)"><input name="guiaDespacho" maxLength={64} /></Field>
                     <Field label="Garantía en CLP (opcional)"><input name="depositClp" type="number" min={0} max={2147483647} step={1} /></Field>
                   </>}
-                  <Field label={to === 'RETIRED' ? 'Motivo de baja' : 'Notas (opcional)'} wide><input name="notes" maxLength={500} required={to === 'RETIRED'} /></Field>
+                  <Field label="Notas (opcional)" wide><input name="notes" maxLength={500} /></Field>
                 </div>
               </ActionForm>}
             </Expand>)}

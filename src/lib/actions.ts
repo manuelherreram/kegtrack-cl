@@ -4,8 +4,9 @@ import { Prisma } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { clearSession, requireUser, signIn } from './auth'
-import { couplers, formatRut, kegCodePattern, parseDate, sizes, statuses, type Status } from './domain'
-import { bulkFill, InputError, registerKeg, transitionKeg, updateVolume } from './inventory'
+import { beerKey, controlBatch } from './batches'
+import { batchStatuses, couplers, formatRut, InputError, kegCodePattern, parseDate, sizes, statuses, type KegAction, type Status } from './domain'
+import { bulkFill, correctKeg, editKeg, registerKeg, transitionKeg, updateVolume } from './inventory'
 import { hashPassword, validPassword } from './password'
 import { prisma } from './prisma'
 
@@ -22,11 +23,13 @@ function read(form: FormData, name: string, max: number, required = true, trim =
 const fieldLabels: Record<string, string> = {
   name: 'Nombre', email: 'Correo', password: 'Contraseña', role: 'Perfil',
   kegCode: 'Código de barril', couplerType: 'Conector', sizeLiters: 'Capacidad',
-  batchCode: 'Código de lote', beerName: 'Cerveza', style: 'Estilo', fillDate: 'Fecha de llenado',
+  batchCode: 'Código de lote', beerId: 'Cerveza', style: 'Estilo', fillDate: 'Fecha de llenado',
   bestBeforeDate: 'Consumo preferente', rut: 'RUT', comuna: 'Comuna', address: 'Dirección',
   contactName: 'Contacto', contactPhone: 'Teléfono', tapLine: 'Línea de barra',
   remainingLiters: 'Litros restantes', depositClp: 'Garantía', guiaDespacho: 'Guía de despacho',
   notes: 'Notas', batchId: 'Lote', clientId: 'Cliente', version: 'Versión del barril', to: 'Acción',
+  packagedLiters: 'Litros totales del lote', discardedLiters: 'Litros descartados', reason: 'Motivo',
+  status: 'Estado del lote', action: 'Acción',
 }
 
 function numeric(form: FormData, name: string, min: number, max: number, decimal = false, required = true) {
@@ -50,6 +53,7 @@ function uniqueError(error: Prisma.PrismaClientKnownRequestError) {
   if (fields.includes('tapLine')) return 'Esa línea de barra ya está ocupada.'
   if (fields.includes('rut')) return 'Ya existe un cliente con ese RUT.'
   if (fields.includes('email')) return 'Ya existe un usuario con ese correo.'
+  if (fields.includes('key')) return 'Ya existe una cerveza con ese nombre y estilo.'
   return 'Ese código ya está registrado.'
 }
 
@@ -75,6 +79,15 @@ async function adminUser() {
 }
 
 const unauthorized = { error: 'Solo administración puede realizar esta acción.' }
+
+function kegFields(form: FormData) {
+  const couplerType = read(form, 'couplerType', 12)
+  const sizeLiters = numeric(form, 'sizeLiters', 19, 50)!
+  if (!sizes.some((size) => size === sizeLiters) || !Object.hasOwn(couplers, couplerType)) {
+    throw new InputError('Selecciona una capacidad y un conector válidos.')
+  }
+  return { sizeLiters, couplerType: couplerType as keyof typeof couplers, notes: read(form, 'notes', 500, false) || null }
+}
 
 export async function login(_prev: Feedback, form: FormData): Promise<Feedback> {
   let success: boolean
@@ -102,17 +115,40 @@ export async function createKeg(_prev: Feedback, form: FormData) {
   if (!user) return unauthorized
   return perform(async () => {
     const kegCode = read(form, 'kegCode', 32).toUpperCase()
-    const couplerType = read(form, 'couplerType', 12)
-    const sizeLiters = numeric(form, 'sizeLiters', 19, 50)!
-    const notes = read(form, 'notes', 500, false)
     if (!kegCodePattern.test(kegCode)) throw new InputError('Usa de 2 a 32 letras, números o guiones para el código.')
-    if (!sizes.some((size) => size === sizeLiters) || !Object.hasOwn(couplers, couplerType)) {
-      throw new InputError('Selecciona una capacidad y un conector válidos.')
-    }
-    await prisma.$transaction((tx) => registerKeg(tx, user.id, {
-      kegCode, couplerType: couplerType as keyof typeof couplers, sizeLiters, notes: notes || null,
-    }))
+    const fields = kegFields(form)
+    await prisma.$transaction((tx) => registerKeg(tx, user.id, { kegCode, ...fields }))
     return `Barril ${kegCode} registrado.`
+  })
+}
+
+export async function saveKegDetails(kegCode: string, _prev: Feedback, form: FormData) {
+  const user = await adminUser()
+  if (!user) return unauthorized
+  return perform(async () => {
+    await editKeg(user, kegCode, numeric(form, 'version', 0, 2_147_483_647)!, kegFields(form), read(form, 'reason', 500))
+    return 'Ficha actualizada.'
+  })
+}
+
+export async function undoKegMovement(kegCode: string, _prev: Feedback, form: FormData) {
+  const user = await adminUser()
+  if (!user) return unauthorized
+  return perform(async () => {
+    await correctKeg(user, kegCode, numeric(form, 'version', 0, 2_147_483_647)!, read(form, 'reason', 500))
+    return 'Corrección registrada en el historial.'
+  })
+}
+
+export async function createBeer(_prev: Feedback, form: FormData) {
+  const user = await adminUser()
+  if (!user) return unauthorized
+  return perform(async () => {
+    const name = read(form, 'name', 100)
+    const style = read(form, 'style', 100)
+    const key = await beerKey(prisma, name, style)
+    await prisma.beer.create({ data: { name, style, key } })
+    return `Cerveza ${name} registrada.`
   })
 }
 
@@ -121,13 +157,37 @@ export async function createBatch(_prev: Feedback, form: FormData) {
   if (!user) return unauthorized
   return perform(async () => {
     const batchCode = read(form, 'batchCode', 40).toUpperCase()
-    const beerName = read(form, 'beerName', 100)
-    const style = read(form, 'style', 100)
+    const beerId = read(form, 'beerId', 64)
     const fillDate = parseDate(read(form, 'fillDate', 10))
     const bestBeforeDate = parseDate(read(form, 'bestBeforeDate', 10))
     if (!fillDate || !bestBeforeDate || bestBeforeDate < fillDate) throw new InputError('El consumo preferente debe ser el día de llenado o posterior.')
-    await prisma.batch.create({ data: { batchCode, beerName, style, fillDate, bestBeforeDate } })
-    return `Lote ${batchCode} creado.`
+    const packagedLiters = numeric(form, 'packagedLiters', 0.1, 100_000, true)!
+    await prisma.$transaction(async (tx) => {
+      const beer = await tx.beer.findUnique({ where: { id: beerId } })
+      if (!beer) throw new InputError('Selecciona una cerveza del catálogo.')
+      const batch = await tx.batch.create({ data: {
+        batchCode, beerId, beerName: beer.name, style: beer.style, fillDate, bestBeforeDate,
+        packagedDeciliters: Math.round(packagedLiters * 10),
+      } })
+      await tx.batchControl.create({ data: {
+        batchId: batch.id, userId: user.id, status: batch.status,
+        packagedDeciliters: batch.packagedDeciliters, notes: 'Alta del lote',
+      } })
+    })
+    return `Lote ${batchCode} creado en retención.`
+  })
+}
+
+export async function saveBatchControl(batchId: string, _prev: Feedback, form: FormData) {
+  const user = await adminUser()
+  if (!user) return unauthorized
+  return perform(async () => {
+    const status = read(form, 'status', 12)
+    if (!Object.hasOwn(batchStatuses, status)) throw new InputError('Selecciona un estado válido.')
+    const volume = numeric(form, 'packagedLiters', 0.1, 100_000, true, false)
+    await controlBatch(user, batchId, numeric(form, 'version', 0, 2_147_483_647)!, status as keyof typeof batchStatuses,
+      volume === undefined ? undefined : Math.round(volume * 10), read(form, 'reason', 500))
+    return 'Controles del lote actualizados.'
   })
 }
 
@@ -179,11 +239,22 @@ export async function applyTransition(kegCode: string, _prev: Feedback, form: Fo
   return perform(async () => {
     const to = read(form, 'to', 20)
     if (!Object.hasOwn(statuses, to)) throw new InputError('Selecciona una acción válida.')
+    const action = read(form, 'action', 16, false)
+    if (action && action !== 'DISCARD' && action !== 'RETURN_COLD') throw new InputError('Selecciona una acción válida.')
     const version = numeric(form, 'version', 0, 2_147_483_647)!
-    const change = { to: to as Status, version, notes: read(form, 'notes', 500, false) || undefined }
+    const change = {
+      to: to as Status, version, action: (action || undefined) as KegAction | undefined,
+      notes: read(form, 'notes', 500, action === 'DISCARD') || undefined,
+    }
     switch (change.to) {
       case 'FULL':
-        Object.assign(change, { batchId: read(form, 'batchId', 64) })
+        Object.assign(change, {
+          batchId: action ? undefined : read(form, 'batchId', 64),
+          remainingLiters: numeric(form, 'remainingLiters', 0.1, 50, true),
+        })
+        break
+      case 'DIRTY':
+        if (action === 'DISCARD') Object.assign(change, { discardedLiters: numeric(form, 'discardedLiters', 0.1, 50, true) })
         break
       case 'ON_TAP':
         Object.assign(change, {
@@ -210,11 +281,13 @@ export async function fillBatch(_prev: Feedback, form: FormData) {
     const batchId = read(form, 'batchId', 64)
     const entries = form.getAll('keg')
     if (!entries.length || entries.length > 100) throw new InputError('Selecciona de 1 a 100 barriles limpios.')
-    const selected = new Map<string, number>()
+    const selected = new Map<string, { version: number; liters: number }>()
     for (const value of entries) {
       const match = typeof value === 'string' ? /^([\w-]{1,64}):(\d{1,10})$/.exec(value) : null
       if (!match || selected.has(match[1]) || Number(match[2]) > 2_147_483_647) throw new InputError('Revisa la selección de barriles.')
-      selected.set(match[1], Number(match[2]))
+      const volume = read(form, `volume-${match[1]}`, 24, false)
+      if (!/^\d+(?:[.,]\d)?$/.test(volume)) throw new InputError('Indica los litros de cada barril seleccionado.')
+      selected.set(match[1], { version: Number(match[2]), liters: Number(volume.replace(',', '.')) })
     }
     const count = await bulkFill(user, batchId, selected)
     return count === 1 ? '1 barril llenado.' : `${count} barriles llenados.`
